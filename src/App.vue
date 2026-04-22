@@ -50,9 +50,7 @@ const loading = ref(true)
 
 onMounted(async () => {
   try {
-    // Si localhost falla, usa la URL directa para probar:
-    // const url = "https://conflict-tracker-bueno-production.up.railway.app/api/v1/conflicts"
-    const url = `${import.meta.env.VITE_API_URL}/conflicts`
+    const url = "https://conflict-tracker-bueno-production.up.railway.app/api/v1/conflicts"
     
     console.log("Llamando a:", url)
     const response = await axios.get(url)
