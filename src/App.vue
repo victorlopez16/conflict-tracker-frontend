@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
 
-    <!-- NOTIFICACIÓN TOAST -->
+    <!-- TOAST -->
     <Transition name="toast">
       <div v-if="toast.visible" :class="['toast', toast.type]">
         <span class="toast-icon">{{ toast.type === 'success' ? '✓' : '✗' }}</span>
@@ -52,6 +52,39 @@
 
       <!-- SIDEBAR -->
       <aside class="sidebar">
+
+        <!-- MAPA DE REGIÓN VISUAL -->
+        <div class="card map-card">
+          <h3 class="card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor" class="icon"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+            Distribución Regional
+          </h3>
+          <div class="region-bars">
+            <div
+              v-for="region in regionStats"
+              :key="region.name"
+              class="region-row"
+              :title="`${region.name}: ${region.total} conflicto(s)`"
+            >
+              <span class="region-name">{{ region.name }}</span>
+              <div class="region-track">
+                <div
+                  class="region-fill"
+                  :style="{
+                    width: regionBarWidth(region.total) + '%',
+                    background: regionColor(region.name)
+                  }"
+                ></div>
+              </div>
+              <div class="region-dots">
+                <span v-if="region.active > 0" class="rdot rdot--red" :title="`${region.active} activo(s)`">{{ region.active }}</span>
+                <span v-if="region.tension > 0" class="rdot rdot--yellow" :title="`${region.tension} en tensión`">{{ region.tension }}</span>
+                <span v-if="region.resolved > 0" class="rdot rdot--green" :title="`${region.resolved} resuelto(s)`">{{ region.resolved }}</span>
+              </div>
+            </div>
+            <p v-if="regionStats.length === 0" class="region-empty">Sin datos regionales aún</p>
+          </div>
+        </div>
 
         <!-- FILTROS -->
         <div class="card filter-card">
@@ -105,6 +138,8 @@
             <svg viewBox="0 0 20 20" fill="currentColor" class="icon"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
             Registrar Incidente
           </h3>
+
+          <!-- ✅ FIX #4: Se usa @submit.prevent, no se pinta nada hasta recibir ID del servidor -->
           <form @submit.prevent="createConflict" class="conflict-form" novalidate>
             <div class="input-group" :class="{ error: formErrors.name }">
               <label>Nombre del Conflicto <span class="required">*</span></label>
@@ -112,6 +147,7 @@
                 v-model="newConflict.name"
                 placeholder="Ej: Tensiones en el Mar Rojo"
                 @blur="validateField('name')"
+                :disabled="creating"
               />
               <span v-if="formErrors.name" class="error-msg">{{ formErrors.name }}</span>
             </div>
@@ -119,11 +155,11 @@
             <div class="input-row">
               <div class="input-group">
                 <label>Región</label>
-                <input v-model="newConflict.region" placeholder="Ej: Medio Oriente" />
+                <input v-model="newConflict.region" placeholder="Ej: Medio Oriente" :disabled="creating" />
               </div>
               <div class="input-group">
                 <label>Estado</label>
-                <select v-model="newConflict.status">
+                <select v-model="newConflict.status" :disabled="creating">
                   <option value="ACTIVE">🔴 Activo</option>
                   <option value="TENSION">🟡 Tensión</option>
                   <option value="RESOLVED">🟢 Resuelto</option>
@@ -138,6 +174,7 @@
                 type="date"
                 :max="today"
                 @blur="validateField('startDate')"
+                :disabled="creating"
               />
               <span v-if="formErrors.startDate" class="error-msg">{{ formErrors.startDate }}</span>
             </div>
@@ -149,13 +186,14 @@
                 rows="3"
                 placeholder="Detalles del conflicto..."
                 maxlength="500"
+                :disabled="creating"
               ></textarea>
               <span class="char-count">{{ newConflict.description.length }}/500</span>
             </div>
 
             <button type="submit" :disabled="creating || !isFormValid" class="btn-submit">
               <span v-if="creating" class="btn-spinner"></span>
-              {{ creating ? 'Enviando...' : 'Publicar Conflicto' }}
+              {{ creating ? 'Guardando...' : 'Publicar Conflicto' }}
             </button>
           </form>
         </div>
@@ -163,7 +201,6 @@
 
       <!-- FEED -->
       <section class="feed">
-        <!-- BARRA DE ESTADO -->
         <div class="feed-header">
           <p class="result-count">
             <template v-if="!loading">
@@ -171,7 +208,8 @@
               <span v-if="hasActiveFilters"> (filtrado de {{ conflicts.length }})</span>
             </template>
           </p>
-          <button @click="fetchConflicts" class="btn-refresh" :class="{ spinning: loading }" title="Actualizar">
+          <!-- ✅ FIX #3: Botón de refresh llama a fetchConflicts que añade timestamp -->
+          <button @click="fetchConflicts" class="btn-refresh" :class="{ spinning: loading }" title="Actualizar" :disabled="loading">
             <svg viewBox="0 0 20 20" fill="currentColor" class="icon"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
             Actualizar
           </button>
@@ -203,6 +241,7 @@
         </div>
 
         <!-- GRID DE CONFLICTOS -->
+        <!-- ✅ FIX #4: La key usa c.id que solo existe una vez el backend confirmó el objeto -->
         <TransitionGroup v-else name="card-list" tag="div" class="grid-layout">
           <div
             v-for="c in filteredConflicts"
@@ -221,7 +260,7 @@
                 </span>
                 <span class="card-age">{{ timeAgo(c.startDate) }}</span>
               </div>
-              <h3 class="card-title">{{ c.name }}</h3>
+              <h3 class="card-title-conflict">{{ c.name }}</h3>
               <p class="description">{{ c.description || 'Sin descripción.' }}</p>
             </div>
 
@@ -279,6 +318,23 @@
             </p>
           </div>
           <p class="modal-description">{{ selectedConflict.description || 'Sin descripción disponible.' }}</p>
+
+          <!-- Mini timeline visual -->
+          <div class="modal-timeline">
+            <div class="timeline-bar">
+              <div
+                class="timeline-fill"
+                :class="selectedConflict.status.toLowerCase()"
+                :style="{ width: timelineWidth(selectedConflict.startDate) + '%' }"
+              ></div>
+            </div>
+            <div class="timeline-labels">
+              <span>{{ formatDate(selectedConflict.startDate) }}</span>
+              <span class="timeline-duration">{{ durationLabel(selectedConflict.startDate) }}</span>
+              <span>Hoy</span>
+            </div>
+          </div>
+
           <div v-if="selectedConflict.countries && selectedConflict.countries.length" class="modal-flags">
             <h4>Países involucrados</h4>
             <div class="flags-row">
@@ -292,6 +348,9 @@
               </div>
             </div>
           </div>
+
+          <!-- ID del servidor (debug útil, oculto en producción) -->
+          <p class="modal-id">ID: {{ selectedConflict.id }}</p>
         </div>
       </div>
     </Transition>
@@ -300,7 +359,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 
 // ─── CONFIGURACIÓN ──────────────────────────────────────────────────────────
@@ -308,12 +367,12 @@ const API_URL = "https://conflict-tracker-bueno-production.up.railway.app/api/v1
 const today = new Date().toISOString().split('T')[0]
 
 // ─── ESTADO GLOBAL ──────────────────────────────────────────────────────────
-const conflicts   = ref([])
-const loading     = ref(true)
-const loadError   = ref(false)
-const creating    = ref(false)
+const conflicts        = ref([])
+const loading          = ref(true)
+const loadError        = ref(false)
+const creating         = ref(false)
 const selectedConflict = ref(null)
-const toast       = ref({ visible: false, message: '', type: 'success' })
+const toast            = ref({ visible: false, message: '', type: 'success' })
 
 // ─── FILTROS ────────────────────────────────────────────────────────────────
 const filters = ref({
@@ -340,8 +399,6 @@ const uniqueRegions = computed(() => {
 
 const filteredConflicts = computed(() => {
   let list = [...conflicts.value]
-
-  // Búsqueda de texto
   const q = filters.value.search.toLowerCase().trim()
   if (q) {
     list = list.filter(c =>
@@ -350,18 +407,12 @@ const filteredConflicts = computed(() => {
       c.description?.toLowerCase().includes(q)
     )
   }
-
-  // Filtro de estado
   if (filters.value.statuses.length) {
     list = list.filter(c => filters.value.statuses.includes(c.status))
   }
-
-  // Filtro de región
   if (filters.value.region) {
     list = list.filter(c => c.region === filters.value.region)
   }
-
-  // Ordenamiento
   const sortFns = {
     date_desc: (a, b) => new Date(b.startDate) - new Date(a.startDate),
     date_asc:  (a, b) => new Date(a.startDate) - new Date(b.startDate),
@@ -369,9 +420,43 @@ const filteredConflicts = computed(() => {
     name_desc: (a, b) => b.name.localeCompare(a.name),
   }
   list.sort(sortFns[filters.value.sortBy] || sortFns.date_desc)
-
   return list
 })
+
+// ─── STATS REGIONALES para el mini mapa ─────────────────────────────────────
+const regionStats = computed(() => {
+  const map = {}
+  for (const c of conflicts.value) {
+    const r = c.region || 'Sin región'
+    if (!map[r]) map[r] = { name: r, total: 0, active: 0, tension: 0, resolved: 0 }
+    map[r].total++
+    if (c.status === 'ACTIVE')   map[r].active++
+    if (c.status === 'TENSION')  map[r].tension++
+    if (c.status === 'RESOLVED') map[r].resolved++
+  }
+  return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 8)
+})
+
+const maxRegionTotal = computed(() => Math.max(1, ...regionStats.value.map(r => r.total)))
+
+function regionBarWidth(total) {
+  return Math.round((total / maxRegionTotal.value) * 100)
+}
+
+const regionColorPalette = [
+  '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#06b6d4', '#10b981', '#f97316', '#ec4899',
+]
+const regionColorCache = {}
+let regionColorIdx = 0
+
+function regionColor(name) {
+  if (!regionColorCache[name]) {
+    regionColorCache[name] = regionColorPalette[regionColorIdx % regionColorPalette.length]
+    regionColorIdx++
+  }
+  return regionColorCache[name]
+}
 
 // ─── FORMULARIO ─────────────────────────────────────────────────────────────
 const newConflict = ref(emptyForm())
@@ -404,12 +489,18 @@ const isFormValid = computed(() =>
 )
 
 // ─── API ─────────────────────────────────────────────────────────────────────
+
+// ✅ FIX #3: Timestamp en cada GET para evitar caché del navegador
 const fetchConflicts = async () => {
-  loading.value  = true
+  loading.value   = true
   loadError.value = false
   try {
-    const { data } = await axios.get(API_URL)
-    conflicts.value = data
+    const { data } = await axios.get(API_URL, {
+      params: { _t: Date.now() },           // <-- cache-buster
+      headers: { 'Cache-Control': 'no-cache' }
+    })
+    // ✅ FIX #2: Reemplazamos el array entero — Vue detecta el cambio reactivo correctamente
+    conflicts.value = Array.isArray(data) ? data : []
   } catch (err) {
     console.error("Error cargando datos:", err)
     loadError.value = true
@@ -418,18 +509,31 @@ const fetchConflicts = async () => {
   }
 }
 
+// ✅ FIX #1: async/await + fetchConflicts() llamado solo DESPUÉS del 200/201
+// ✅ FIX #4: El objeto local NO se pinta antes de recibir respuesta del backend.
+//            Solo se actualiza el array tras el GET con IDs generados por la DB.
 const createConflict = async () => {
   if (!validateField(null)) return
+  if (creating.value) return  // doble-submit guard
+
   creating.value = true
   try {
-    await axios.post(API_URL, newConflict.value)
+    await axios.post(API_URL, {
+      name:        newConflict.value.name.trim(),
+      region:      newConflict.value.region.trim(),
+      status:      newConflict.value.status,
+      description: newConflict.value.description.trim(),
+      startDate:   newConflict.value.startDate,
+    })
+    // Solo tras confirmación 2xx limpiamos el formulario y recargamos
     newConflict.value = emptyForm()
     formErrors.value  = {}
-    await fetchConflicts()
+    await fetchConflicts()  // <-- trae los datos con IDs reales del servidor
     showToast('Conflicto publicado correctamente.', 'success')
   } catch (err) {
     console.error("Error creando conflicto:", err)
-    showToast('Error al guardar. Revisa la conexión.', 'error')
+    const msg = err.response?.data?.message || 'Error al guardar. Revisa la conexión.'
+    showToast(msg, 'error')
   } finally {
     creating.value = false
   }
@@ -460,14 +564,35 @@ function formatDate(dateStr) {
 
 function timeAgo(dateStr) {
   if (!dateStr) return ''
-  const diff = Date.now() - new Date(dateStr)
+  const diff  = Date.now() - new Date(dateStr)
   const days  = Math.floor(diff / 86400000)
-  if (days === 0) return 'Hoy'
-  if (days === 1) return 'Ayer'
-  if (days < 30)  return `Hace ${days}d`
+  if (days === 0)  return 'Hoy'
+  if (days === 1)  return 'Ayer'
+  if (days < 30)   return `Hace ${days}d`
   const months = Math.floor(days / 30)
   if (months < 12) return `Hace ${months}m`
   return `Hace ${Math.floor(months / 12)}a`
+}
+
+function durationLabel(dateStr) {
+  if (!dateStr) return ''
+  const days = Math.floor((Date.now() - new Date(dateStr)) / 86400000)
+  if (days === 0) return 'Hoy'
+  if (days < 30)  return `${days} días`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} meses`
+  const years = Math.floor(months / 12)
+  const rem   = months % 12
+  return rem > 0 ? `${years}a ${rem}m` : `${years} año${years > 1 ? 's' : ''}`
+}
+
+function timelineWidth(dateStr) {
+  if (!dateStr) return 10
+  const diff   = Date.now() - new Date(dateStr)
+  const days   = Math.floor(diff / 86400000)
+  // Escala logarítmica: 1 día = 5%, 365 días = 100%
+  const pct = Math.min(100, Math.max(5, (Math.log(days + 1) / Math.log(366)) * 100))
+  return Math.round(pct)
 }
 
 function toggleStatusFilter(value) {
@@ -500,12 +625,12 @@ function showToast(message, type = 'success') {
 // ─── LIFECYCLE ────────────────────────────────────────────────────────────────
 onMounted(fetchConflicts)
 
-// Cerrar modal con Escape
-if (typeof window !== 'undefined') {
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeDetail()
-  })
-}
+const escHandler = (e) => { if (e.key === 'Escape') closeDetail() }
+if (typeof window !== 'undefined') window.addEventListener('keydown', escHandler)
+onUnmounted(() => {
+  if (typeof window !== 'undefined') window.removeEventListener('keydown', escHandler)
+  clearTimeout(toastTimer)
+})
 </script>
 
 <style scoped>
@@ -554,11 +679,7 @@ if (typeof window !== 'undefined') {
   border-bottom: 1px solid var(--border);
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
+.header-left { display: flex; align-items: center; gap: 1rem; }
 
 .logo-mark {
   width: 44px;
@@ -572,31 +693,11 @@ if (typeof window !== 'undefined') {
   flex-shrink: 0;
 }
 
-.globe-svg {
-  width: 26px;
-  height: 26px;
-  color: var(--accent);
-}
+.globe-svg { width: 26px; height: 26px; color: var(--accent); }
+.main-header h1 { font-size: 1.4rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
+.subtitle { font-size: 0.78rem; color: var(--text-muted); margin: 2px 0 0; }
 
-.main-header h1 {
-  font-size: 1.4rem;
-  font-weight: 700;
-  margin: 0;
-  letter-spacing: -0.02em;
-}
-
-.subtitle {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin: 2px 0 0;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
+.header-right { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 
 .live-chip {
   display: flex;
@@ -620,10 +721,7 @@ if (typeof window !== 'undefined') {
   animation: pulse 1.8s ease-in-out infinite;
 }
 
-.stats-chips {
-  display: flex;
-  gap: 0.5rem;
-}
+.stats-chips { display: flex; gap: 0.5rem; }
 
 .chip {
   display: flex;
@@ -685,11 +783,69 @@ if (typeof window !== 'undefined') {
 .icon { width: 16px; height: 16px; flex-shrink: 0; }
 
 /* ═══════════════════════════════════════════
+   MAPA REGIONAL (nuevo componente)
+═══════════════════════════════════════════ */
+.map-card { padding: 1.25rem 1.5rem; }
+
+.region-bars { display: flex; flex-direction: column; gap: 10px; }
+
+.region-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 56px;
+  align-items: center;
+  gap: 8px;
+}
+
+.region-name {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.region-track {
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.region-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 0.85;
+}
+
+.region-dots {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.rdot {
+  font-size: 0.6rem;
+  font-weight: 700;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.rdot--red    { background: var(--red-bg);    color: var(--red); }
+.rdot--yellow { background: var(--yellow-bg); color: var(--yellow); }
+.rdot--green  { background: var(--green-bg);  color: var(--green); }
+
+.region-empty { font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 1rem 0; }
+
+/* ═══════════════════════════════════════════
    FILTROS
 ═══════════════════════════════════════════ */
-.filter-group {
-  margin-bottom: 1rem;
-}
+.filter-group { margin-bottom: 1rem; }
 
 .filter-group label {
   display: block;
@@ -701,11 +857,7 @@ if (typeof window !== 'undefined') {
   margin-bottom: 0.5rem;
 }
 
-.search-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
+.search-wrap { position: relative; display: flex; align-items: center; }
 
 .search-icon {
   position: absolute;
@@ -739,11 +891,7 @@ if (typeof window !== 'undefined') {
   line-height: 1;
 }
 
-.filter-pills {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
+.filter-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .pill {
   padding: 4px 12px;
@@ -780,11 +928,9 @@ if (typeof window !== 'undefined') {
    FORMULARIO
 ═══════════════════════════════════════════ */
 .conflict-form { display: flex; flex-direction: column; gap: 1rem; }
-
 .input-group { display: flex; flex-direction: column; gap: 0.4rem; }
 .input-group.error input,
 .input-group.error textarea { border-color: var(--red); }
-
 .input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 
 label {
@@ -817,6 +963,11 @@ input:focus, select:focus, textarea:focus {
   outline: none;
 }
 
+input:disabled, select:disabled, textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 textarea { resize: vertical; font-family: inherit; }
 
 .btn-submit {
@@ -842,10 +993,7 @@ textarea { resize: vertical; font-family: inherit; }
   box-shadow: 0 4px 20px rgba(59,130,246,0.3);
 }
 
-.btn-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-spinner {
   width: 14px;
@@ -882,7 +1030,8 @@ textarea { resize: vertical; font-family: inherit; }
   cursor: pointer;
   transition: all 0.2s;
 }
-.btn-refresh:hover { border-color: var(--border-2); color: var(--text); }
+.btn-refresh:hover:not(:disabled) { border-color: var(--border-2); color: var(--text); }
+.btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-refresh.spinning .icon { animation: spin 1s linear infinite; }
 
 /* ═══════════════════════════════════════════
@@ -907,24 +1056,21 @@ textarea { resize: vertical; font-family: inherit; }
 .conflict-card::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 0; left: 0; right: 0;
   height: 3px;
   opacity: 0;
   transition: opacity 0.2s;
 }
 
-.conflict-card.status-active::before   { background: var(--red);    }
-.conflict-card.status-tension::before  { background: var(--yellow);  }
-.conflict-card.status-resolved::before { background: var(--green);   }
+.conflict-card.status-active::before   { background: var(--red); }
+.conflict-card.status-tension::before  { background: var(--yellow); }
+.conflict-card.status-resolved::before { background: var(--green); }
 
 .conflict-card:hover {
   transform: translateY(-3px);
   border-color: var(--border-2);
   box-shadow: var(--shadow);
 }
-
 .conflict-card:hover::before { opacity: 1; }
 
 .card-top { flex: 1; }
@@ -936,18 +1082,14 @@ textarea { resize: vertical; font-family: inherit; }
   margin-bottom: 0.75rem;
 }
 
-.card-age {
-  font-size: 0.65rem;
-  color: var(--text-muted);
-}
+.card-age { font-size: 0.65rem; color: var(--text-muted); }
 
-.conflict-card .card-title {
+.card-title-conflict {
   font-size: 1rem;
   font-weight: 600;
   color: var(--text);
   margin: 0 0 0.6rem;
   letter-spacing: -0.01em;
-  text-transform: none;
   line-height: 1.3;
 }
 
@@ -995,7 +1137,6 @@ textarea { resize: vertical; font-family: inherit; }
 }
 
 .badge--lg { font-size: 0.72rem; padding: 5px 12px; }
-
 .active   { background: var(--red-bg);    color: var(--red);    border: 1px solid rgba(248,113,113,0.3); }
 .tension  { background: var(--yellow-bg); color: var(--yellow); border: 1px solid rgba(251,191,36,0.3); }
 .resolved { background: var(--green-bg);  color: var(--green);  border: 1px solid rgba(52,211,153,0.3); }
@@ -1111,16 +1252,16 @@ textarea { resize: vertical; font-family: inherit; }
   width: 100%;
   box-shadow: 0 24px 64px rgba(0,0,0,0.6);
   position: relative;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .modal-close {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: 1rem; right: 1rem;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  width: 30px;
-  height: 30px;
+  width: 30px; height: 30px;
   border-radius: 50%;
   color: var(--text-muted);
   cursor: pointer;
@@ -1134,20 +1275,65 @@ textarea { resize: vertical; font-family: inherit; }
 
 .modal-header { margin-bottom: 1.5rem; }
 .modal-header h2 { font-size: 1.4rem; font-weight: 700; margin: 0.75rem 0 0.5rem; }
-
 .modal-meta { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
 .modal-description { font-size: 0.9rem; color: var(--text-dim); line-height: 1.7; }
+.modal-id { font-size: 0.65rem; color: var(--text-muted); margin-top: 1.5rem; opacity: 0.5; }
+
+/* Timeline del modal */
+.modal-timeline {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.timeline-bar {
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.timeline-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.timeline-fill.active   { background: var(--red); }
+.timeline-fill.tension  { background: var(--yellow); }
+.timeline-fill.resolved { background: var(--green); }
+
+.timeline-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.timeline-duration {
+  font-weight: 600;
+  color: var(--text-dim);
+}
 
 .modal-flags { margin-top: 1.5rem; }
-.modal-flags h4 { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.75rem; }
+.modal-flags h4 {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem;
+}
 
 /* ═══════════════════════════════════════════
    TOAST
 ═══════════════════════════════════════════ */
 .toast {
   position: fixed;
-  bottom: 2rem;
-  right: 2rem;
+  bottom: 2rem; right: 2rem;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1162,45 +1348,36 @@ textarea { resize: vertical; font-family: inherit; }
 
 .toast.success { background: var(--green-bg); border-color: var(--green); color: var(--green); }
 .toast.error   { background: var(--red-bg);   border-color: var(--red);   color: var(--red); }
-
-.toast-icon { font-weight: 700; font-size: 1rem; }
+.toast-icon    { font-weight: 700; font-size: 1rem; }
 
 /* ═══════════════════════════════════════════
-   ANIMACIONES & TRANSICIONES
+   ANIMACIONES
 ═══════════════════════════════════════════ */
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.9); }
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
+@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-/* Card list transition */
 .card-list-enter-active { transition: all 0.35s ease; }
 .card-list-leave-active { transition: all 0.25s ease; }
 .card-list-enter-from   { opacity: 0; transform: translateY(16px); }
 .card-list-leave-to     { opacity: 0; transform: scale(0.95); }
 .card-list-move         { transition: transform 0.35s ease; }
 
-/* Modal transition */
 .modal-enter-active, .modal-leave-active { transition: all 0.25s ease; }
 .modal-enter-from, .modal-leave-to       { opacity: 0; }
 .modal-enter-active .modal, .modal-leave-active .modal { transition: all 0.25s ease; }
 .modal-enter-from .modal  { transform: scale(0.96) translateY(8px); }
 .modal-leave-to .modal    { transform: scale(0.96) translateY(8px); }
 
-/* Toast transition */
 .toast-enter-active, .toast-leave-active { transition: all 0.3s ease; }
 .toast-enter-from, .toast-leave-to       { opacity: 0; transform: translateX(12px); }
 
-/* Scrollbar */
 ::-webkit-scrollbar       { width: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
