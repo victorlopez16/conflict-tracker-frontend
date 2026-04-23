@@ -405,10 +405,11 @@ const isFormValid = computed(() =>
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 const fetchConflicts = async () => {
-  loading.value  = true
+  loading.value = true
   loadError.value = false
   try {
-    const { data } = await axios.get(API_URL)
+    // Añadimos ?t=... para obligar al navegador a ignorar la caché
+    const { data } = await axios.get(`${API_URL}?t=${Date.now()}`)
     conflicts.value = data
   } catch (err) {
     console.error("Error cargando datos:", err)
